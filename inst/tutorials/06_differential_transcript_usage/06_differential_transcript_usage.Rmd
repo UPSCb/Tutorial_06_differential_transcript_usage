@@ -1,0 +1,459 @@
+---
+title: "Differential Transcript Usage using DRIMSeq"
+author: "Nicolas Delhomme"
+tutorial:
+  id: "se.upsc.tutorials.06_differential_transcript_usage"
+  version: 1.0.0
+output:
+  learnr::tutorial:
+    progressive: true
+    allow_skip: true
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+
+# to run locally replace tutorials/06_differential_transcript_usage/www with inst/tutorials/06_differential_transcript_usage/www
+
+# to run in an app replace tutorials/06_differential_transcript_usage/www with www
+
+# libraries
+suppressPackageStartupMessages({
+  library(DRIMSeq)
+  library(EnsDb.Hsapiens.v86)
+  library(here)
+  library(learnr)
+  library(org.Hs.eg.db)
+  library(stageR)
+  library(tidyverse)
+  library(tximport)
+})
+
+# options
+knitr::opts_chunk$set(echo = FALSE)
+tutorial_options(
+  exercise.reveal_solution=TRUE)
+
+```
+
+## Introduction
+
+### Selecting tools
+
+DTU is still a very young topic in expression profiling, despite some tools having been available for a decade.
+ 
+It is hard to know what tool to use, even if there are not that many available yet.
+ 
+Figuring it out is a good example of "technological watch" in bioinformatics. Selecting a (few) tool(s) will involve:
+ 
+1. Assessing its (their) relevance through a literature search, possibly identifying some benchmark report.
+2. Asserting the code availability, and its quality (is it maintained and actively developed, or was it a one of for publication)
+3. Installing the tool (that's an easy filter, if a tool does not install easily, that's a no-no)
+4. Looking up the tool documentation (this could be part of 2. and could be swapped with 3., but 3. is commonly fast). If the documentation is scarce or hard to find, that's minus points.
+ 
+Eventually, you will probably end up with a few tools that fulfill all criteria above and a lot of the selection process has to be pragmatic. Even if a tool is not the "best" according to benchmarks, but is easy to install, run and has good doc, it's probably the better choice (for the sake of your time).
+ 
+### A practical example
+ 
+There is one good benchmark published by [Love _et al._](https://f1000research.com/articles/7-952/v3). 
+ 
+For DTU, they compare four tools:
+
+1. `DEXSeq` 
+2. `DRIMSeq`
+3. `RATs`
+4. `SUPPA2`
+ 
+`IsoformSwitchAnalyzeR` is mentioned in the review, but not assessed.
+ 
+For DGE and DTE, they compared:
+ 
+1. `DESeq2` 
+2. `EBSeq`
+3. `edgeR` (multiple flavours)
+4. `limma`
+5. `SAMseq`
+6. `sleuth`
+
+### Tool selection
+ 
+For the DTU, the benchmark conclusions are:
+ 
+**RATs and SUPPA2 control their FDR well, but have a lower True Positive Rate than DEXSeq and DRIMSeq.**
+ 
+**Filtering the input data (signal-to-noise ratio) does help bringing the FDR closer to its target.**
+ 
+As an answer to point 1. above, it seems all tools can be considered at that stage. 
+ 
+Moving to point 2. all four tools have repositories that are easy to access. All, but SUPPA2, are `R` packages. SUPPA2 is written in `python`. There is nothing here that would immediately red flag a tool.
+ 
+With regards to point 3. neither, they are all easy to install and run.
+ 
+As for point 4. DEXSeq, and DRIMSeq have good documentation. RATs, too, but it somewhat requires more time to patch it together and it is fairly succinct. There are some instructions to import data but it is more or less restricted to importing `kallisto`.
+ 
+Where does that leave us? **Note** that this is the most **pragmatic** part of the process, it does not imply anything about the tools' performance.
+
+1. `DEXSeq` - not a DTU tool per-se
+2. `DRIMSeq` - a candidate that fits well our pipeline. Avail in R and documented.
+3. `RATs` - the documentation is limited and would require effort to figure out how to import our `salmon` data.
+4. `SUPPA2` - the tool is written in `python` so less fitted to our environment.
+ 
+There is also `IsoformSwitchAnalyzeR`, as a well documented R package, but we lack an in-depth comparison to other tools.
+ 
+As a final note, the benchmark manuscript has an associated [GitHub repository](https://github.com/mikelove/swimdown) which contains all the code to actually run `SUPPA2` and import the results in `R`. Similarly, it contioans the code to use `RATs` on `salmon` output. Plus all the code necessary to reproduce the whole benchmarking analysis, so definitely a hugely useful resource!
+ 
+### Decision
+ 
+Let's give a shot at `DRIMSeq`. To retrieve the help page, we only need to lookup the available documentation in that package vignette. 
+
+```{r vignette, exercise=TRUE, exercise.eval=FALSE}
+vignette(package="DRIMSeq")
+``` 
+
+This next command, you will want to run in RStudio, not in the tutorial:
+```{r display-vignette, eval=FALSE, echo=TRUE}
+vignette("DRIMSeq",package="DRIMSeq")
+```
+
+## Data preparation
+
+As in the vignette, we are preparing the samples and counts data. While preparing the samples is easy, we need to do some reworking on the data. 
+
+```{r prep, exercise=TRUE, exercise.eval=TRUE, exercise.lines=10}
+suppressPackageStartupMessages({
+  library(here)
+  library(tidyverse)
+  })
+sample_file <- here("tutorials/06_differential_transcript_usage/www/samples_table.tsv")
+samples <- read_tsv(sample_file,col_types=c("cfff")) %>% as.data.frame() %>% 
+  rename(group="treatment")
+```
+
+The `tximport.rds` file contains the quantification results from salmon at the transcript level. The counts are the raw expression estimate, while for `DTU`, Love _et al._ recommend to use TPM scaled. To do so, we load the object and use the `tximport` package function `makeCountsFromAbundance` to calculate the TPM.
+
+Next we need to find the transcript ID to gene ID mapping. Here, we rely on the `EnsDb.Hsapiens.v86` annotation package. Sadly it is an old annotation, it dates back from Oct 2016, v108 is current. Btw the `org.Hs.eg.db` package is not newer, so we are missing on some gene-transcript mapping.
+
+```{r data, exercise=TRUE, exercise.eval=TRUE, exercise.setup="prep", exercise.lines=20}
+suppressPackageStartupMessages({
+  library(EnsDb.Hsapiens.v86)
+  library(tximport)
+  })
+txi <- readRDS(here("tutorials/06_differential_transcript_usage/www/tximport.rds"))
+
+txi$counts <- makeCountsFromAbundance(txi$counts,txi$abundance,txi$length,countsFromAbundance="scaledTPM")
+
+suppressPackageStartupMessages(library(EnsDb.Hsapiens.v86))
+
+tx2gene <- ensembldb::select(EnsDb.Hsapiens.v86,
+                             keys=sub("\\.\\d+$","", rownames(txi$counts)),
+                             keytype="TXID", columns=c("GENEID","TXID"))
+
+counts <- tx2gene %>% rename(c(gene_id="GENEID",feature_id="TXID")) %>% 
+  left_join(txi$counts %>% as.data.frame() %>% 
+              rownames_to_column("feature_id") %>% 
+              mutate(feature_id=sub("\\.\\d+$","",feature_id)),by=c("feature_id"))
+
+```
+
+Now that the data and samples are sorted out, we can proceed.
+
+## Differential Transcript Usage
+### Initialization
+
+Here we simply use the `dmDSdata()` constructor.
+
+```{r constructor, exercise=TRUE, exercise.eval=TRUE, exercise.setup="data"}
+suppressPackageStartupMessages({library(DRIMSeq)})
+(d <- dmDSdata(counts = counts, samples = samples))
+```
+
+We can then take a look at the number of transcripts per gene
+
+```{r plotTxPerGene, exercise=TRUE, exercise.eval=TRUE, exercise.setup="constructor"}
+plotData(d)
+```
+
+And assert how many genes have more than one transcript.
+
+```{r nTxPerGene, exercise=TRUE, exercise.eval=TRUE, exercise.setup="constructor"}
+(tab <- table(table(counts(d)$gene_id)))
+sum(tab[-1])
+```
+
+There is not much more we can explore there, so we can move on and filter the genes / transcripts.
+
+### Filtering
+
+As reported by [Love et al.](https://f1000research.com/articles/7-952/v3) and implemented in `DRIMSeq`, filtering for low expression (_i.e._ signal-to-noise) is an essential step.
+
+There are 4 filters:
+
+1. `min_samps_gene_expr`
+2. `min_samps_feature_expr`
+3. `min_gene_expr`
+4. `min_feature_expr`
+
+As a first step to the filtering, we use `tidyverse` to tidy the counts and visualise them as a density plot per sample. 
+
+```{r filter-view, exercise=TRUE, exercise.eval=TRUE, exercise.setup="constructor", exercise.lines=6}
+counts(d)[,-(1:2)] %>% 
+  pivot_longer(cols=everything(),names_to="sample_id",values_to="x") %>%
+  dplyr::filter(x!=0) %>% 
+  ggplot(aes(x=log1p(x),group=sample_id,col=sample_id)) + geom_density() +
+  geom_vline(xintercept=log1p(10))
+```
+
+Using a cutoff as in the package vignette, seem acceptable.
+
+```{r filter, exercise=TRUE, exercise.eval=TRUE, exercise.setup="constructor"}
+(d <- dmFilter(d, min_samps_gene_expr = 12, min_samps_feature_expr = 3,
+               min_gene_expr = 10, min_feature_expr = 10))
+```
+
+We can now move on, define the model and extract the parameters.
+
+### Precision estimation
+To calculate the precision estimate, we face the same problem as for the Differential Gene Expression (DGE), _i.e._ that we have few samples.
+
+However as for the DGE, we have many genes so we could use that information to calculate a common dispersion, assuming the precision is a constant for almost all genes.
+
+Unlike for gene expression, this is likely to be too strong of an assumption for DTU. Rather the authors of DRIMSeq, decided on a moderated approach.
+
+In that approach, 10% of the genes (by default) are selected at random to estimate the common dispersion.
+
+Prior to estimating the precision, we need to define the design matrix. 
+
+```{r design, exercise=TRUE, exercise.eval=TRUE,exercise.setup="filter"}
+(design_full <- model.matrix(~ group + time, data = DRIMSeq::samples(d)))
+```
+
+Then we can calculate the precision. This is the time consuming step of DRIMSeq, which can be parallelised on a real dataset. The code here is for your reference, it has been run and took a couple hours running on 92 CPUs on the amount of genes we are considering. The `d` object is loaded in the background.
+
+```{r notrun, eval=FALSE, echo=TRUE}
+BPPARAM = BiocParallel::MulticoreParam(workers=92L)
+(d <- dmPrecision(d, design = design_full))
+```
+
+```{r save, include=FALSE, eval=FALSE}
+save(d,design_full,file=here("tutorials/06_differential_transcript_usage/www/dmDSdata.rda"))
+```
+
+```{r precision-setup}
+d <- readRDS(file=here("tutorials/06_differential_transcript_usage/www/dmDSdata.rds"))
+```
+
+We can take a look at the precision estimation results.
+
+```{r precision, exercise=TRUE, exercise.eval=TRUE}
+common_precision(d)
+```
+
+```{r precision-plot, exercise=TRUE, exercise.eval=TRUE}
+plotPrecision(d)
+```
+
+Now that the precision estimation has been established, we can estimate the transcripts proportion per gene.
+
+### Proportion estimation
+
+_i.e._ fitting the model
+
+This also takes a couple minutes to ran, so here again, we just load it in the background.
+
+```{r notrun2, eval=FALSE, echo=TRUE}
+(d <- dmFit(d, design = design_full, verbose = 1))
+```
+
+```{r save2, include=FALSE, eval=FALSE}
+saveRDS(d,file=here("tutorials/06_differential_transcript_usage/www/dmDSfit.rds"))
+```
+
+```{r dtu-setup}
+d <- readRDS(file=here("tutorials/06_differential_transcript_usage/www/dmDSfit.rds"))
+```
+
+```{r fit-display, eval=TRUE, echo=FALSE}
+d
+```
+
+We could look at the proportion and coefficients that were calculated, but let's rather forge forward and finally test for DTU.
+
+### Testing for DTU
+This is done by fitting two models, a `null` and a `full`. Then likelihood ratio statistics are used to test for differences between the two models.
+
+```{r notrun3, eval=FALSE, echo=TRUE}
+(d <- dmTest(d, coef = "groupG03", verbose = 1))
+```
+
+```{r save3, include=FALSE, eval=FALSE}
+saveRDS(d,file=here("tutorials/06_differential_transcript_usage/www/dmDStest.rds"))
+```
+
+```{r assess-setup}
+d <- readRDS(file=here("tutorials/06_differential_transcript_usage/www/dmDStest.rds"))
+```
+
+```{r test-display, eval=TRUE, echo=FALSE}
+d
+```
+
+Now that this is done, we can look at the results!
+
+### Results
+
+---
+
+#### Assessment
+
+Here we want to ensure that the p-values are uniformly distributed.
+
+```{r assess, exercise=TRUE, exercise.eval=TRUE}
+plotPValues(d)
+```
+
+```{r assess2, exercise=TRUE, exercise.eval=TRUE}
+plotPValues(d,level="feature")
+```
+
+This looks fairly good. Let us look at the results.
+
+---
+
+####  Results
+
+Extract and sort the results by FDR
+
+```{r results, exercise=TRUE, exercise.eval=TRUE, exercise.setup="assess-setup", exercise.lines=5}
+res <- results(d)
+res <- res[order(res$pvalue, decreasing = FALSE), ]
+```
+
+Fill free to select different genes to visualise.
+
+```{r plots, exercise=TRUE, exercise.eval=TRUE, exercise.setup="results"}
+plotProportions(d, gene_id = res$gene_id[3], group_variable = "group")
+```
+
+```{r plots2, exercise=TRUE, exercise.eval=TRUE, exercise.setup="results"}
+plotProportions(d, gene_id = res$gene_id[3], group_variable = "group",
+                plot_type = "lineplot")
+```
+
+```{r plots3, exercise=TRUE, exercise.eval=TRUE, exercise.setup="results"}
+plotProportions(d, gene_id = res$gene_id[3], group_variable = "group",
+                plot_type = "boxplot1")
+```
+
+### Two-stage test
+One can use the `stageR` package to set up a two stage test. During the first step, a screening test, one will select genes of interest.
+
+Then in the confirmation test, for each gene separately, the transcript p-values will be adjusted.
+
+The process in the code chunk below is as follows:
+
+1. Assign gene-level pvalues to the screening stage
+2. Assign transcript-level p-values to the confirmation stage
+3. Create the gene-transcript mapping
+4. Create the stageRTx object and perform the stage-wise analysis
+
+```{r stageR, exercise=TRUE, exercise.eval=TRUE, exercise.setup="results", exercise.lines=20}
+suppressPackageStartupMessages(library(stageR))
+
+pScreen <- results(d)$pvalue
+pScreen[is.na(pScreen)] <- 1
+names(pScreen) <- results(d)$gene_id
+
+pConfirmation <- matrix(results(d, level = "feature")$pvalue, ncol = 1)
+pConfirmation[is.na(pConfirmation)] <- 1
+rownames(pConfirmation) <- results(d, level = "feature")$feature_id
+
+tx2gene <- results(d, level = "feature")[, c("feature_id", "gene_id")]
+
+stageRObj <- stageRTx(pScreen = pScreen, pConfirmation = pConfirmation,
+                      pScreenAdjusted = FALSE, tx2gene = tx2gene)
+stageRObj <- stageWiseAdjustment(object = stageRObj, method = "dtu",
+                                 alpha = 0.05, allowNA=TRUE)
+```
+
+Finally, we can take a look at the results
+
+```{r signif, exercise=TRUE, exercise.eval=TRUE, exercise.setup="stageR"}
+head(getSignificantGenes(stageRObj))
+```
+
+```{r signif2, exercise=TRUE, exercise.eval=TRUE, exercise.setup="stageR"}
+head(getSignificantTx(stageRObj))
+```
+
+```{r signif3, exercise=TRUE, exercise.eval=TRUE, exercise.setup="stageR", exercise.lines=5}
+all <- getAdjustedPValues(stageRObj, order = TRUE,
+                           onlySignificantGenes = FALSE)
+head(all)
+```
+
+```{r signif4, exercise=TRUE, exercise.eval=TRUE, exercise.setup="signif3"}
+padj <- getAdjustedPValues(stageRObj, order = TRUE,
+                           onlySignificantGenes = TRUE)
+```
+
+We can lookup the most significant gene:
+
+```{r gene, exercise=TRUE, exercise.eval=TRUE, exercise.setup="signif", exercise.lines=6}
+suppressPackageStartupMessages(library(org.Hs.eg.db))
+AnnotationDbi::select(x=org.Hs.eg.db,
+                      keys="ENSG00000117682",
+                      keytype="ENSEMBL",
+                      columns="GENENAME")
+```
+
+The top gene is [DHDDS](https://www.uniprot.org/uniprotkb/Q86SQ9/entry): _dehydrodolichyl diphosphate synthase subunit_.
+
+We can also compare the significant genes prior and after running stageR.
+
+```{r ggvenn, exercise=TRUE, exercise.eval=TRUE, exercise.setup="signif4", exercise.lines=5}
+suppressPackageStartupMessages(library(ggvenn))
+ggvenn(list(prior=res$gene_id[res$adj_pvalue <= 0.05 & ! is.na(res$adj_pvalue)],
+       posterior=padj$geneID))
+```
+
+We can have a look at the genes dropped after `stageR`
+
+```{r dropped, exercise=TRUE, exercise.eval=TRUE, exercise.setup="signif4"}
+(goi <- setdiff(res$gene_id[res$adj_pvalue <= 0.05 & ! is.na(res$adj_pvalue)],padj$geneID))
+```
+
+Now we can visualise them
+
+```{r dropped2, exercise=TRUE, exercise.eval=TRUE, exercise.setup="dropped", exercise.lines=5, exercise.timelimit=300}
+dev.null <- sapply(goi,function(g){
+  print(plotProportions(d, gene_id = g, group_variable = "group",plot_type = "boxplot1"))
+})
+```
+
+And look up their p-values
+
+```{r dropped3, exercise=TRUE, exercise.eval=TRUE, exercise.setup="dropped2"}
+unique(all[all$geneID %in% goi,"gene"])
+```
+
+Their p-values are obviously very close to the prior cutoff we chose.
+
+There are many things one could do to follow this up, _e.g._ doing a GSEA analysis on the significant genes, _etc._
+
+## Session Info
+It is good practice and highly recommended to always include the session info in your analyses. This way other can reproduce them with the exact same versions of the packages you used. Use the help to find out how to print the session info.
+
+```{r session-info, exercise=TRUE, exercise.eval=TRUE}
+
+```
+
+```{r session-info-hint}
+sessionInfo()
+```
+
+## Copyright
+This material is provided under the following license:
+
+`CC-BY-NC-SA 4.0: `Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International Public License`
+
+by **BN Bioinformatics Handelsbolag**

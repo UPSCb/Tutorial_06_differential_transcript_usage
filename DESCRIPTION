@@ -1,18 +1,25 @@
-Package: RnaSeqTutorialXX
+Package: RnaSeqTutorial06
 Type: Package
-Title: XXX
+Title: Differential Transcript Usage tutorial
 Version: 1.0.0
 Author: Nicolas Delhomme [aut, cre]
 Maintainer: Nicolas Delhomme <nicolas.delhomme@umu.se>
-Description: A package containing the XXX tutorial in a series that go from the Exploratory Data Analysis
+Description: A package containing the sixth tutorial in a series that go from the Exploratory Data Analysis
     to the Differential Gene Expression, Differential Transcript Usage and Gene Set Enrichment Analysis
 License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International Public License
 Encoding: UTF-8
 LazyData: true
 Depends:
     R (>= 4.4.0),
+    DRIMSeq (>= 1.34.0),
+    EnsDb.Hsapiens.v86 (>= 2.99.0),
+    ggvenn (>= 0.1.10),
     here (>= 1.0.1),
-    learnr (>= 0.11.5)
+    learnr (>= 0.11.5),
+    org.Hs.eg.db (>= 3.20.0),
+    stageR (>= 1.28.0),
+    tidyverse (>= 2.0.0),
+    tximport (>= 1.34.0)
 Suggests: BiocStyle, knitr, rmarkdown
 VignetteBuilder: knitr
 RoxygenNote: 7.3.2
