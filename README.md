@@ -1,22 +1,5 @@
 # RnaSeqTutorial06
 
-## Using this template
-
-1. Edit this README, change the title
-2. Edit the R/RnaSeqTutorials-package.R file, line 1, 21, 23, 26, 27, 30 and 34
-3. Update the README installation info (dependencies, github directory), you can use the code in R/RnaSeqTutorials-package.R to build the dependencies list.
-4. Replace all XXX and XX with the tutorial and package name, respectively
-5. Edit the DESCRIPTION, change the XX and XXX and add the dependencies
-6. Configure the project option to enable Roxygen to build the doc
-7. Build the doc with Roxygen
-8. Check the package
-9. Push to GH
-10. Try to install using the instructions
-11. (Fix and retry)
-12. Remove this first section :-)
-
----
-
 Differential transcript usage analysis
 
 ## Installation
@@ -52,7 +35,7 @@ devtools::install_github("UPSCb/Tutorial_06_differential_transcript_usage")
 
 ## Getting started
 
-This is the first in a series of tutorials.
+This is the sixth in a series of tutorials.
 
 1. 01_data_science_intro: an introduction to data science using the `palmerpenguins` package
 2. 02_exploratory_data_analysis: the exploratory data analysis of a public RNA-Seq dataset

@@ -248,7 +248,11 @@ We can take a look at the precision estimation results.
 common_precision(d)
 ```
 
-```{r precision-plot, exercise=TRUE, exercise.eval=TRUE}
+```{r precision_plot-setup}
+d <- readRDS(file=here("tutorials/06_differential_transcript_usage/www/dmDSdata.rds"))
+```
+
+```{r precision_plot, exercise=TRUE, exercise.eval=TRUE}
 plotPrecision(d)
 ```
 
@@ -280,6 +284,8 @@ We could look at the proportion and coefficients that were calculated, but let's
 
 ### Testing for DTU
 This is done by fitting two models, a `null` and a `full`. Then likelihood ratio statistics are used to test for differences between the two models.
+The 'coef' parameter indicates which columns of the full design should be removed to get the null design.
+Alternatively, you can give the full null design model using the 'design' parameter, or a numeric vector using the 'contrast' parameter.
 
 ```{r notrun3, eval=FALSE, echo=TRUE}
 (d <- dmTest(d, coef = "groupG03", verbose = 1))
@@ -309,6 +315,10 @@ Here we want to ensure that the p-values are uniformly distributed.
 
 ```{r assess, exercise=TRUE, exercise.eval=TRUE}
 plotPValues(d)
+```
+
+```{r assess2-setup}
+d <- readRDS(file=here("tutorials/06_differential_transcript_usage/www/dmDStest.rds"))
 ```
 
 ```{r assess2, exercise=TRUE, exercise.eval=TRUE}
